@@ -1,0 +1,7 @@
+version: ALPHA 0.1
+video_settings:
+	fov: 60
+	max_fps: 0
+display_settings:
+	display_mode: 
+	res: (1680, 1050)
