@@ -61,7 +61,8 @@ sysout_handler = logging.StreamHandler(sys.stdout)
 sysout_handler.setLevel(logging.DEBUG)
 
 # format the logging
-formatter = logging.Formatter("{}: %(message)s".format(datetime.today().strftime("%H:%M:%S")))
+formatter = logging.Formatter("{} %(message)s".format(datetime.today().strftime('%Y-%m-%d--%H-%M-%S')))
+#formatter = logging.Formatter(fmt="%(asctime)s: %(message)s", datefmt="%I:%M:%S")
 file_handler.setFormatter(formatter)
 sysout_handler.setFormatter(formatter)
 
@@ -123,8 +124,44 @@ class SceneMainMenu(SceneBase):
                                   [2, -1, 0], [4, -1, 0], [4, 1, 0],
                                   [2, -1, 0], [4, 1, 0], [2, 1, 0]], 'f'))
 
+        self.vbo = vbo.VBO(array([[-1,  1,  1],
+                                 [-1, -1, -1],
+                                 [-1, -1,  1],
+                                 [-1,  1, -1],
+                                 [ 1, -1, -1],
+                                 [-1, -1, -1],
+                                 [ 1,  1, -1],
+                                 [ 1, -1,  1],
+                                 [ 1, -1, -1],
+                                 [ 1,  1,  1],
+                                 [-1, -1,  1],
+                                 [ 1, -1,  1],
+                                 [ 1, -1, -1],
+                                 [-1, -1,  1],
+                                 [-1, -1, -1],
+                                 [-1,  1, -1],
+                                 [ 1,  1,  1],
+                                 [ 1,  1, -1],
+                                 [-1,  1,  1],
+                                 [-1,  1, -1],
+                                 [-1, -1, -1],
+                                 [-1,  1, -1],
+                                 [ 1,  1, -1],
+                                 [ 1, -1, -1],
+                                 [ 1,  1, -1],
+                                 [ 1,  1,  1],
+                                 [ 1, -1,  1],
+                                 [ 1,  1,  1],
+                                 [-1,  1,  1],
+                                 [-1, -1,  1],
+                                 [ 1, -1, -1],
+                                 [ 1, -1,  1],
+                                 [-1, -1,  1],
+                                 [-1,  1, -1],
+                                 [-1,  1,  1],
+                                 [ 1,  1,  1]], "f"))
+
         # create a Vertex Buffer Object (for ex. a 3D Model)
-        self.vbo = vbo.VBO(self.videoship.mesh)
 
         # reset Identity Matrix
         GL.glLoadIdentity()
@@ -135,6 +172,7 @@ class SceneMainMenu(SceneBase):
 
         # bind models of scene
         self.vbo.bind()
+        #self.videoship.mesh.bind()
 
     def update(self):
         SceneBase.update(self)
@@ -148,21 +186,21 @@ class SceneMainMenu(SceneBase):
 
         #GL.glTranslatef(0, 0, delta_time * -2)
         # print(delta_time)
-        GL.glRotatef(delta_time * 10, delta_time * 1000, 0, 0)
+        GL.glRotatef(delta_time * 500, delta_time * 1000, 0, 0)
         GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
         GL.glVertexPointerf(self.vbo)
 
         self.shader_program.set_uniform_4fv('vertex_color', 1,
-                                            array([255, 0, 0, 1.0]))
+                                            array([0, 1, (math.sin(time.perf_counter()) / 4), 1.0]))
         # (math.sin(time.perf_counter()) / 2) <- color change
         # connects every 3 cordinates and fills it.
         GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 36)
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
 
-        self.shader_program.set_uniform_matrix4fv('view', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
-        self.shader_program.set_uniform_matrix4fv('model', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
+        self.shader_program.set_uniform_matrix4fv('modelview', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
         delta_time = time.perf_counter()
         pg.display.flip()
 
@@ -187,21 +225,26 @@ class Mesh(object):
                 if not values: continue
                 if values[0] == 'v':
                     if vertex_list is not None:
-                        vertex = array([[float(values[1]), float(values[2]), float(values[3])]])
-                        vertex_list = np.append(vertex_list, vertex, axis=0)
+                        vertex = [float(values[1]), float(values[2]), float(values[3])]
+                        vertex_list.append(vertex)
                         # debugging vertex list values
                         # logger.info("vertex_list: {}".format(vertex_list))
                     else:
-                        vertex_list = array([[float(values[1]), float(values[2]), float(values[3])]])
+                        vertex_list = [[float(values[1]), float(values[2]), float(values[3])]]
+
                 if values[0] == 'f':
-                    f = list(map(int, values[1:4]))
+                    faces = list(map(int, values[1:4]))
                     if self.mesh is not None:
-                        self.mesh = np.append(self.mesh,
-                                              [vertex_list[f[0] - 1], vertex_list[f[1] - 1], vertex_list[f[2] - 1]],
-                                              axis=0)
+                        self.mesh = np.append(self.mesh, [vertex_list[faces[0]-1],
+                                                          vertex_list[faces[1]-1],
+                                                          vertex_list[faces[2]-1]], axis=0)
 
                     else:
-                        self.mesh = array([vertex_list[f[0] - 1], vertex_list[f[1] - 1], vertex_list[f[2] - 1]])
+                        self.mesh = array([vertex_list[faces[0]-1],vertex_list[faces[1]-1],vertex_list[faces[2]-1]], "f")
+
+            print(self.mesh)
+
+            self.mesh = vbo.VBO(self.mesh)
             # debugging mesh coordinates
             # logger.info("Mesh:\n {}".format(self.mesh))
 
@@ -338,15 +381,8 @@ class ShaderProgram(object):
         # set 'pMatrixUniform' to our 'pMatrix' (Projection Matrix)
         self.set_uniform_matrix4fv('projection', 1, GL.GL_FALSE, p_matrix)
 
-        model_matrix = array([1.0, 0.0, 0.0, 0.0,
-                              0.0, 1.0, 0.0, 0.0,
-                              0.0, 0.0, 1.0, 0.0,
-                              0.0, 0.0, 0.0, 1.0], 'f')
-
-        self.set_uniform_matrix4fv('model', 1, GL.GL_FALSE, model_matrix)
-
         # get the default transformation matrix from Opengl
-        self.set_uniform_matrix4fv('view', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
+        self.set_uniform_matrix4fv('modelview', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
 
     # setters for the shader methods (for the floating point operations)
     # get Location in the shader, write value to it
