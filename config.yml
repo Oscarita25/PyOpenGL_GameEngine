@@ -1,6 +1,6 @@
 version: ALPHA 0.1
 video_settings:
-	fov: 60
+	fov: 90
 	max_fps: 0
 display_settings:
 	display_mode: 
