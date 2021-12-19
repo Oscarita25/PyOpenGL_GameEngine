@@ -19,7 +19,7 @@ from numpy import array
 # frame_time / time_passed / delta_time
 # used to store the time between frames to speed up or slow down rendering
 # for frame independent rendering speed.
-delta_time = None
+delta_time = 0
 
 # TODO - use colors
 # Colors:
@@ -27,20 +27,17 @@ WHITE = (255, 255, 255)
 
 # config
 config = None
-
-# display settings:
 clock = pg.time.Clock()
 
 logger = logging.getLogger(__name__)
 filename = f"logs/{datetime.today().strftime('%Y-%m-%d--%H-%M-%S')}.log"
 # Logging
+# TODO - delete files, if more than 2 exist
 if os.path.exists("logs/"):
     file_handler = RotatingFileHandler(filename=filename, backupCount=2, encoding='utf-8', delay=False)
-    # logging.basicConfig(filename=filename, level=logging.DEBUG)
 else:
     os.makedirs("logs/")
     file_handler = RotatingFileHandler(filename=filename, backupCount=2, encoding='utf-8', delay=False)
-    # logging.basicConfig(filename=filename, level=logging.DEBUG)
 logger.setLevel(logging.DEBUG)
 
 # export sysout to our log
@@ -48,8 +45,8 @@ sysout_handler = logging.StreamHandler(sys.stdout)
 sysout_handler.setLevel(logging.DEBUG)
 
 # format the logging
-formatter = logging.Formatter(f"{datetime.today().strftime('%Y-%m-%d--%H-%M-%S')} %(message)s")
-# formatter = logging.Formatter(fmt="%(asctime)s: %(message)s", datefmt="%I:%M:%S")
+formatter = logging.Formatter("%(message)s")
+# formatter = logging.Formatter(fmt="%(asctime)s: %(message)s", datefmt="%I:%M:%S") - highly performance heavy
 file_handler.setFormatter(formatter)
 sysout_handler.setFormatter(formatter)
 
@@ -63,6 +60,8 @@ logger.info("[- PROGRAM START -]")
 class SceneBase:
 
     def __init__(self):
+        # TODO - make viewport_2D do something
+        # placeholder...
         self.viewport_2D = ShaderProgram("assets/shaders/viewport_2D.vsh",
                                          "assets/shaders/viewport_2D.fsh")
         self.viewport_3D = ShaderProgram("assets/shaders/viewport_3D.vsh",
@@ -94,19 +93,23 @@ class SceneBase:
 
 
 # TODO - make menu
+# TODO - Level Loading
 class SceneMainMenu(SceneBase):
 
     def __init__(self):
         SceneBase.__init__(self)
+        # pg.mouse.set_cursor((8, 8), (0, 0), (0, 0, 0, 0, 0, 0, 0, 0), (0, 0, 0, 0, 0, 0, 0, 0))
+        pg.event.set_grab(True)
 
         self.videoship = Mesh("assets/models/VideoShip.obj")
         self.cube = Mesh("assets/models/cube.obj")
-        # TODO - replace this:
+        self.cube = Mesh("assets/models/axis.obj")
+        # TODO - replace this (vertex color shouldn't be set like this):
         self.viewport_3D.set_uniform_4fv('vertex_color', 1, array([0, 1, 0, 1]))
 
         self.viewport_3D.set_uniform_matrix4fv('modelview', 1, GL.GL_FALSE, GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
         # clear screen and set it to black
-        GL.glClearColor(0, 0, 0, 1.0)
+        GL.glClearColor(0, 0.2, 0.4, 1.0)
         self.videoship.set_pos(0, 0, -10)
         self.cube.set_pos(0, 10, -20)
         self.camera = Camera(self.viewport_3D)
@@ -115,9 +118,12 @@ class SceneMainMenu(SceneBase):
     def update(self):
         global delta_time
         SceneBase.update(self)
+        # TODO - make camera move properly.
         keys = pg.key.get_pressed()
         mouse_pos = pg.mouse.get_pos()
+        HandleMouse(mouse_pos)
         self.camera.move(keys, mouse_pos)
+        self.camera.update()
 
     def render(self):
         global delta_time
@@ -128,66 +134,121 @@ class SceneMainMenu(SceneBase):
         # draw here:
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
-        # GL.glRotatef(delta_time*10, 0, 0, 1)
-        # self.viewport_3D.set_uniform_matrix4fv('view', 1,
-        #                                      GL.GL_FALSE,
-        #                                     GL.glGetFloat(GL.GL_MODELVIEW_MATRIX))
+
         self.videoship.draw(self.viewport_3D)
         self.cube.draw(self.viewport_3D)
         self.camera.draw()
-        # GL.glTranslatef(0, 0, delta_time * -10)
-        # print(delta_time)
+
         delta_time = time.perf_counter()
         pg.display.flip()
 
 
-# TODO - implement camera
+# TODO - refractor matrix calculations (also in shader)
+#  hurts brain need to optimize... (chugs at least 1k fps)
 class Camera(object):
     def __init__(self, viewport):
-        self.view = array([1.0, 0.0, 0.0, 0.0,
-                           0.0, 1.0, 0.0, 0.0,
-                           0.0, 0.0, 1.0, 0.0,
-                           0.0, 0.0, 0.0, 1.0], 'f')
+        self.position = [0, 0, -50]
+        self.direction = [0, 0, 1]
+        self.right = [1, 0, 0]
+        self.up = np.cross(self.direction, self.right, axisa=- 1, axisb=- 1, axisc=- 1, axis=None)
+        self.speed = 0.00001 * delta_time
+        self.sensitivity = 0.2
+        self.yaw = 0
+        self.pitch = 0
+        self.lastx = 0
+        self.lasty = 0
+        self.view = array([self.right[0], self.right[1], self.right[2], 0.0,
+                           self.up[0], self.up[1], self.up[2], 0.0,
+                           self.direction[0], self.direction[1], self.direction[2], 0.0,
+                           0.0, 0.0, 0.0, 1.0], "f")
+
+        self.viewpoint = array([1.0, 0.0, 0.0, 0.0,
+                                0.0, 1.0, 0.0, 0.0,
+                                0.0, 0.0, 1.0, 0.0,
+                                -self.position[0], -self.position[1], -self.position[2], 1.0])
+
         self.viewport = viewport
 
-    def move(self, keys, mouse_rotation):
-        if keys[pg.K_w]:
-            self.add_pos(0, 0, 0.001)
-        if keys[pg.K_a]:
-            self.add_pos(0.001, 0, 0)
-        if keys[pg.K_s]:
-            self.add_pos(0, 0, -0.001)
-        if keys[pg.K_d]:
-            self.add_pos(-0.001, 0, 0)
+    def move(self, keys, mouse_position):
 
-        self.set_deg(mouse_rotation[0], 0, 0)
+        if keys[pg.K_w]:
+            self.add_pos(-(self.speed * self.direction[0]),
+                         -(self.speed * self.direction[1]),
+                         -(self.speed * self.direction[2]))
+        if keys[pg.K_a]:
+            self.add_pos(-(self.speed * self.right[0]),
+                         -(self.speed * self.right[1]),
+                         -(self.speed * self.right[2]))
+        if keys[pg.K_s]:
+            self.add_pos(self.speed * self.direction[0],
+                         self.speed * self.direction[1],
+                         self.speed * self.direction[2])
+
+        if keys[pg.K_d]:
+            self.add_pos(self.speed * self.right[0],
+                         self.speed * self.right[1],
+                         self.speed * self.right[2])
+
+        #if keys[pg.K_SPACE]:
+            #self.add_pos(0, self.speed, 0)
+       # if keys[pg.K_LSHIFT]:
+            #self.add_pos(0, -self.speed, 0)
+
+        self.yaw += (mouse_position[0] - self.lastx) * self.sensitivity
+        self.pitch += (self.lasty - mouse_position[1]) * self.sensitivity
+
+        self.lastx = mouse_position[0]
+        self.lasty = mouse_position[1]
+
+        if self.pitch > 65:
+            self.pitch = 65
+
+        if self.pitch < -65:
+            self.pitch = -65
+
+        self.set_rot(self.yaw, self.pitch)
 
     def draw(self):
         self.viewport.set_uniform_matrix4fv('view', 1, GL.GL_FALSE, self.view)
+        self.viewport.set_uniform_matrix4fv('viewpoint', 1, GL.GL_FALSE, self.viewpoint)
+
+    def update(self):
+        self.view = array([self.right[0], self.up[0], self.direction[0], 0.0,
+                           self.right[1], self.up[1], self.direction[1], 0.0,
+                           self.right[2], self.up[2], self.direction[2], 0.0,
+                           0.0, 0.0, 0.0, 1.0], "f")
+
+        ''' self.view = array([self.right[0], self.right[1], self.right[2], 0.0,
+                           self.up[0], self.up[1], self.up[2], 0.0,
+                           self.direction[0], self.direction[1], self.direction[2], 0.0,
+                           0.0, 0.0, 0.0, 1.0], "f")'''
+
+        self.viewpoint = array([1.0, 0.0, 0.0, 0.0,
+                                0.0, 1.0, 0.0, 0.0,
+                                0.0, 0.0, 1.0, 0.0,
+                                -self.position[0], -self.position[1], -self.position[2], 1.0])
+
+        self.speed = 0.008 * delta_time
 
     def set_pos(self, x, y, z):
-        self.view[12] = x
-        self.view[13] = y
-        self.view[14] = z
+        self.position[0] = x
+        self.position[1] = y
+        self.position[2] = z
 
     def add_pos(self, x, y, z):
-        self.view[12] += delta_time * x
-        self.view[13] += delta_time * y
-        self.view[14] += delta_time * z
-        pass
+        self.position[0] += x
+        self.position[1] += y
+        self.position[2] += z
 
-    def set_deg(self, x, y, z):
-        self.view[0] = np.cos(x)
-        self.view[4] = np.cos(y)
-        self.view[8] = np.cos(z)
-
-    def add_deg(self, x, y, z):
-        self.view[0] += np.sin(delta_time * x)
-        self.view[4] += np.sin(delta_time * y)
-        self.view[8] += np.sin(delta_time * z)
+    def set_rot(self, yaw, pitch):
+        self.direction[0] = np.cos(np.radians(yaw)) * np.cos(np.radians(pitch))
+        self.direction[1] = np.sin(np.radians(pitch))
+        self.direction[2] = np.sin(np.radians(yaw)) * np.cos(np.radians(pitch))
+        self.right = np.cross([0, 1, 0], self.direction, axisa=- 1, axisb=- 1, axisc=- 1, axis=None)
+        self.up = np.cross(self.direction, self.right, axisa=- 1, axisb=- 1, axisc=- 1, axis=None)
 
 
-# TODO - OBJ; FBX; STL; support!
+# TODO - FBX; STL; support later on.
 class Mesh(object):
     def __init__(self, file_path):
         self.mesh = []
@@ -268,9 +329,9 @@ class Mesh(object):
         viewport_shader.set_uniform_4fv('vertex_color', 1,
                                         array([0, 0.5, (math.sin(time.perf_counter() * 3)), 1.0]))
         GL.glEnable(GL.GL_DEPTH_TEST)
-        # GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
+        GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, len(self.mesh) * 3)
-        # GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
+        GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_FILL)
         GL.glDisable(GL.GL_DEPTH_TEST)
 
         GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
@@ -289,7 +350,9 @@ class Config:
         self.resolution = self.display.get_size()
         self.version = "ALPHA 0.1"
 
-        # TODO - make window mode do something
+        # TODO - make window mode do something!
+        # just a string that saves the display_mode as string
+
         # Config Loading
         try:
             logger.info("Loading Config: 'config.yml'")
@@ -331,7 +394,7 @@ class Config:
                 self.config_file.write(f"\tdisplay_mode: {self.window_mode}\n")
                 self.config_file.write(f"\tres: {self.display.get_size()}\n")
 
-    # TODO - save config from game
+    # TODO - save config from game!!
     def save_config(self, *args):
         pass
 
@@ -341,7 +404,7 @@ class ShaderProgram(object):
     def __init__(self, vertex_path, fragment_path):
         logger.debug("Loading Shader:\n"
                      f"  vertex_shader: '{vertex_path}'\n"
-                     f"fragment_shader: '{fragment_path}\n'")
+                     f"fragment_shader: '{fragment_path}'\n")
         self.ID = shaders.glCreateProgram()
         vertex_shader = shaders.glCreateShader(GL.GL_VERTEX_SHADER)
         fragment_shader = shaders.glCreateShader(GL.GL_FRAGMENT_SHADER)
@@ -388,11 +451,11 @@ class ShaderProgram(object):
     def setup_3D(self):
         # Fov, Aspect ratio, zNear, zFar
         # sets up Projection Matrix
-        z_near = 0.01
-        z_far = 10000.0
+        z_near = 0.5
+        z_far = 1000.0
         aspect_ratio = float(config.display.get_size()[1]) / float(config.display.get_size()[0])
         # 0.00555555555 = 1/180° (so we don'T have to use division lol)
-        fov_rad = 1 / math.tan(config.fov * 0.5 * math.pi * 0.00555555555)
+        fov_rad = config.fov * math.pi * 0.00555555555
 
         # projection matrix
         p_matrix = array([aspect_ratio * fov_rad, 0.0, 0.0, 0.0,
@@ -436,6 +499,29 @@ class ShaderProgram(object):
 
     def set_uniform_matrix4fv(self, location, size, transpose, value):
         GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.ID, location), size, transpose, value)
+
+
+# TODO - fix overedge Scrolling
+def HandleMouse(mouse_pos):
+    # right to left
+    # if mouseX == windowX -> mouseX = 0
+    if mouse_pos[0] == pg.display.get_window_size()[0]-1:
+        pg.mouse.set_pos(pg.display.get_window_size()[0]/2, mouse_pos[1])
+
+    # left to right
+    # if mouseX == 0 -> mouseX = windowX
+    if mouse_pos[0] == 0:
+        pg.mouse.set_pos(pg.display.get_window_size()[0]/2, mouse_pos[1])
+
+    # upper to lower
+    # if mouseY == windowY -> mouseY = 0
+    if mouse_pos[1] == pg.display.get_window_size()[1]-1:
+        pg.mouse.set_pos(mouse_pos[0], pg.display.get_window_size()[1]/2,)
+
+    # lower to upper
+    # if mouseY == 0 -> mouseY = windowY
+    if mouse_pos[1] == 0:
+        pg.mouse.set_pos(mouse_pos[0], pg.display.get_window_size()[1]/2)
 
 
 # The Main GameLoop
